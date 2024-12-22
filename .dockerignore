@@ -1,0 +1,26 @@
+# Ignorer les fichiers et dossiers cachés
+.*
+!.dockerignore
+
+# Ignorer les fichiers de configuration de l'éditeur
+.vscode/
+.idea/
+*.swp
+
+# Ignorer les dossiers de versionnement
+.git/
+.gitignore
+
+# Ignorer les fichiers temporaires et de cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Ignorer d’autres fichiers inutiles
+*.md
+*.zip
+
+# Ignorer le répertoire Projet_environnement
+Projet_environnement/

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Probabilité de Défaut Prédiction</title>
+</head>
+<body>
+    <h1> Bienvenu </h1>
+    <h2>Prédiction de Défaut</h2>
+    <form action="/predict" method="post">
+        <label for="couple">Couple (1 pour oui, 0 pour non):</label>
+        <input type="number" id="couple" name="couple" min="0" max="1" required>
+        <small>Indiquez 1 si le client est en couple, sinon 0.</small><br><br>
+
+        <label for="education">Éducation (1 pour oui, 0 pour non):</label>
+        <input type="number" id="education" name="education" min="0" max="1" required>
+        <small>Indiquez 1 si le client a un niveau d’éducation élevé, sinon 0.</small><br><br>
+
+        <label for="revdispo">Revenu disponible :</label>
+        <input type="number" step="0.01" id="revdispo" name="revdispo" min="0" required>
+        <small>Revenu disponible du client, exemple : 22.08.</small><br><br>
+
+        <label for="montant">Montant du prêt demandé :</label>
+        <input type="number" id="montant" name="montant" min="0" required>
+        <small>Exemple : 1000000 (sans espace ni virgule).</small><br><br>
+
+        <label for="age">Âge du client :</label>
+        <input type="number" id="age" name="age" min="18" required>
+        <small>Âge en années, exemple : 30.</small><br><br>
+
+        <label for="objet">Objet du prêt (0 pour personnel, 1 pour professionnel):</label>
+        <input type="number" id="objet" name="objet" min="0" max="1" required>
+        <small>0 pour un prêt personnel, 1 pour un prêt professionnel.</small><br><br>
+
+        <label for="apport">Apport personnel :</label>
+        <input type="number" step="0.01" id="apport" name="apport" min="0" required>
+        <small>Apport en euros, exemple : 0.15.</small><br><br>
+
+        <label for="prt">Prêt existant :</label>
+        <input type="number" id="prt" name="prt" min="0" required>
+        <small>Montant du prêt existant en euros, exemple : 0.</small><br><br>
+
+        <label for="client">Statut du client (1 pour nouveau, 0 pour existant):</label>
+        <input type="number" id="client" name="client" min="0" max="1" required>
+        <small>1 pour un client existant, 0 pour un nouveau client.</small><br><br>
+
+        <label for="enfant">Nombre d'enfants :</label>
+        <input type="number" id="enfant" name="enfant" min="0" required>
+        <small>Nombre d’enfants à charge, exemple : 2.</small><br><br>
+
+        <label for="tempsplein">Emploi à temps plein (1 pour oui, 0 pour non):</label>
+        <input type="number" id="tempsplein" name="tempsplein" min="0" max="1" required>
+        <small>1 pour un emploi à temps plein, 0 pour non.</small><br><br>
+
+        <label for="duree">Durée du prêt en années :</label>
+        <input type="number" id="duree" name="duree" min="1" required>
+        <small>Durée du prêt en années, exemple : 3.</small><br><br>
+
+        <label for="type">Type de prêt :</label>
+        <input type="number" id="type" name="type" min="0" max="3" required>
+        <small>Exemple : 2 pour un prêt immobilier, 1 pour un crédit à la consommation, etc.</small><br><br>
+
+        <label for="interet">Taux d'intérêt :</label>
+        <input type="number" step="0.01" id="interet" name="interet" min="0" required>
+        <small>Taux d'intérêt, exemple : 3.03.</small><br><br>
+
+        <label for="pel">Plan Épargne Logement (PEL) (1 pour oui, 0 pour non):</label>
+        <input type="number" id="pel" name="pel" min="0" max="1" required>
+        <small>1 si le client possède un PEL, sinon 0.</small><br><br>
+
+        <label for="PCS">Catégorie socioprofessionnelle (PCS) :</label>
+        <input type="number" id="PCS" name="PCS" min="1" max="5" required>
+        <small>Exemple : 1 pour une catégorie d’employé, 3 pour un travailleur indépendant, etc.</small><br><br>
+
+        <label for="courant">Compte courant actif :</label>
+        <input type="number" id="courant" name="courant" min="0" max="3" required>
+        <small>Indiquez 0 pour aucun compte, 1 pour un compte standard, jusqu'à 3 pour un compte premium.</small><br><br>
+
+
+        <button type="submit">Faire une Prédiction</button>
+    </form>
+
+   
+</body>
+</html>

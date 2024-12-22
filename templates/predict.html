@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Formulaire de Prédiction de Défaut</title>
+</head>
+<body>
+    {% if prediction_classe is not none and prob_defaut is not none %}
+    <h2>Résultats de la Prédiction :</h2>
+    <p>Classe prédite : {{ prediction_classe }}</p>
+    <p>Probabilité de faire défaut : {{ prob_defaut }}</p>
+    {% endif %}
+</body>
+</html>
