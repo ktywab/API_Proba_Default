@@ -1,86 +1,232 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Probabilité de Défaut Prédiction</title>
+    <title>Prédiction de Défaut</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+        }
+
+        main {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1, h2 {
+            text-align: center;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            margin: 10px 0 5px;
+            font-weight: bold;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 14px;
+        }
+
+        input[type="number"] {
+            margin-bottom: 10px;
+        }
+
+        small {
+            color: #555;
+            font-size: 12px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
-    <h1> Bienvenu </h1>
-    <h2>Prédiction de Défaut</h2>
+
+<header>
+    <h1>Prédiction de Défaut</h1>
+</header>
+
+<main>
+    <h2>Informations Client</h2>
     <form action="/predict" method="post">
-        <label for="couple">Couple (1 pour oui, 0 pour non):</label>
-        <input type="number" id="couple" name="couple" min="0" max="1" required>
-        <small>Indiquez 1 si le client est en couple, sinon 0.</small><br><br>
+        <label>Couple :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="couple_yes" name="couple" value="1">
+            <label for="couple_yes">Oui</label>
+            <input type="radio" id="couple_no" name="couple" value="0">
+            <label for="couple_no">Non</label>
+        </div>
+        <small>Indiquez si le client est en couple.</small>
 
-        <label for="education">Éducation (1 pour oui, 0 pour non):</label>
-        <input type="number" id="education" name="education" min="0" max="1" required>
-        <small>Indiquez 1 si le client a un niveau d’éducation élevé, sinon 0.</small><br><br>
+        <label>Éducation :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="education_yes" name="education" value="1">
+            <label for="education_yes">Élevée</label>
+            <input type="radio" id="education_no" name="education" value="0">
+            <label for="education_no">Non élevée</label>
+        </div>
+        <small>Indiquez le niveau d’éducation Élevée si plus que le bac sinon Non Élevée .</small>
 
-        <label for="revdispo">Revenu disponible :</label>
+        <label for="revdispo">Revenu disponible (en euros) :</label>
         <input type="number" step="0.01" id="revdispo" name="revdispo" min="0" required>
-        <small>Revenu disponible du client, exemple : 22.08.</small><br><br>
+        <small>Revenu disponible du client, exemple : 22.08.</small>
 
-        <label for="montant">Montant du prêt demandé :</label>
+        <label for="montant">Montant du prêt demandé (en euros) :</label>
         <input type="number" id="montant" name="montant" min="0" required>
-        <small>Exemple : 1000000 (sans espace ni virgule).</small><br><br>
+        <small>Exemple : 1000000 (sans espace ni virgule).</small>
 
-        <label for="age">Âge du client :</label>
+        <label for="age">Âge du client (en années) :</label>
         <input type="number" id="age" name="age" min="18" required>
-        <small>Âge en années, exemple : 30.</small><br><br>
+        <small>Âge en années, exemple : 30.</small>
 
-        <label for="objet">Objet du prêt (0 pour personnel, 1 pour professionnel):</label>
-        <input type="number" id="objet" name="objet" min="0" max="1" required>
-        <small>0 pour un prêt personnel, 1 pour un prêt professionnel.</small><br><br>
+        <label>Objet du prêt :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="objet_perso" name="objet" value="0">
+            <label for="objet_perso">Personnel</label>
+            <input type="radio" id="objet_pro" name="objet" value="1">
+            <label for="objet_pro">Professionnel</label>
+        </div>
+        <small>Indiquez l’objet du prêt.</small>
 
         <label for="apport">Apport personnel :</label>
         <input type="number" step="0.01" id="apport" name="apport" min="0" required>
-        <small>Apport en euros, exemple : 0.15.</small><br><br>
+        <small>Apport en euros, exemple : 0.15 pour 15% du montant de prêt.</small>
 
         <label for="prt">Prêt existant :</label>
         <input type="number" id="prt" name="prt" min="0" required>
-        <small>Montant du prêt existant en euros, exemple : 0.</small><br><br>
+        <small>Montant restant d'un prêt existant en euros. Mettre 0 sinon</small>
 
-        <label for="client">Statut du client (1 pour nouveau, 0 pour existant):</label>
-        <input type="number" id="client" name="client" min="0" max="1" required>
-        <small>1 pour un client existant, 0 pour un nouveau client.</small><br><br>
+        <label>Statut du client :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="client_new" name="client" value="0">
+            <label for="client_new">Nouveau</label>
+            <input type="radio" id="client_existing" name="client" value="1">
+            <label for="client_existing">Existant</label>
+        </div>
+        <small>Indiquez le statut du client.</small>
 
         <label for="enfant">Nombre d'enfants :</label>
         <input type="number" id="enfant" name="enfant" min="0" required>
-        <small>Nombre d’enfants à charge, exemple : 2.</small><br><br>
+        <small>Nombre d’enfants à charge, exemple : 2.</small>
 
-        <label for="tempsplein">Emploi à temps plein (1 pour oui, 0 pour non):</label>
-        <input type="number" id="tempsplein" name="tempsplein" min="0" max="1" required>
-        <small>1 pour un emploi à temps plein, 0 pour non.</small><br><br>
+        <label>Emploi à temps plein :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="tempsplein_yes" name="tempsplein" value="1">
+            <label for="tempsplein_yes">Oui</label>
+            <input type="radio" id="tempsplein_no" name="tempsplein" value="0">
+            <label for="tempsplein_no">Non</label>
+        </div>
+        <small>Indiquez si le client est à temps plein.</small>
 
         <label for="duree">Durée du prêt en années :</label>
         <input type="number" id="duree" name="duree" min="1" required>
-        <small>Durée du prêt en années, exemple : 3.</small><br><br>
+        <small>Durée du prêt en années, exemple : 3.</small>
 
-        <label for="type">Type de prêt :</label>
-        <input type="number" id="type" name="type" min="0" max="3" required>
-        <small>Exemple : 2 pour un prêt immobilier, 1 pour un crédit à la consommation, etc.</small><br><br>
+        <label>Type de prêt :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="type_immobilier" name="type" value="2">
+            <label for="type_immobilier">Immobilier</label>
+            <input type="radio" id="type_conso" name="type" value="1">
+            <label for="type_conso">Consommation</label>
+            <input type="radio" id="type_autre" name="type" value="0">
+            <label for="type_autre">Autre</label>
+        </div>
+        <small>Indiquez le type de prêt.</small>
 
-        <label for="interet">Taux d'intérêt :</label>
+        <label for="interet">Taux d'intérêt (en %) :</label>
         <input type="number" step="0.01" id="interet" name="interet" min="0" required>
-        <small>Taux d'intérêt, exemple : 3.03.</small><br><br>
+        <small>Taux d'intérêt, exemple : 3.03.</small>
 
-        <label for="pel">Plan Épargne Logement (PEL) (1 pour oui, 0 pour non):</label>
-        <input type="number" id="pel" name="pel" min="0" max="1" required>
-        <small>1 si le client possède un PEL, sinon 0.</small><br><br>
+        <label>Plan Épargne Logement (PEL) :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="pel_yes" name="pel" value="1">
+            <label for="pel_yes">Oui</label>
+            <input type="radio" id="pel_no" name="pel" value="0">
+            <label for="pel_no">Non</label>
+        </div>
+        <small>Indiquez si le client possède un PEL.</small>
 
-        <label for="PCS">Catégorie socioprofessionnelle (PCS) :</label>
-        <input type="number" id="PCS" name="PCS" min="1" max="5" required>
-        <small>Exemple : 1 pour une catégorie d’employé, 3 pour un travailleur indépendant, etc.</small><br><br>
+        <div class="details">
+            <h3>Catégories Socioprofessionnelles :</h3>
+            <ul>
+                <li><strong>Catégorie 1 :</strong> Employés et ouvriers.</li>
+                <li><strong>Catégorie 2 :</strong> Professionnels intermédiaires.</li>
+                <li><strong>Catégorie 3 :</strong> Cadre et Dirigeants.</li>
+            </ul>
+        </div>
 
-        <label for="courant">Compte courant actif :</label>
-        <input type="number" id="courant" name="courant" min="0" max="3" required>
-        <small>Indiquez 0 pour aucun compte, 1 pour un compte standard, jusqu'à 3 pour un compte premium.</small><br><br>
+        <label>Catégorie socioprofessionnelle (PCS) :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="pcs_1" name="PCS" value="1">
+            <label for="pcs_1">Catégorie 1</label>
+            <input type="radio" id="pcs_2" name="PCS" value="2">
+            <label for="pcs_2">Catégorie 2</label>
+            <input type="radio" id="pcs_3" name="PCS" value="3">
+            <label for="pcs_3">Catégorie 3</label>
+        </div>
+        <small>Indiquez la catégorie socioprofessionnelle.</small>
 
+        <label>Compte courant actif :</label>
+        <div class="checkbox-group">
+            <input type="radio" id="courant_1" name="courant" value="1">
+            <label for="courant_1">Standard</label>
+            <input type="radio" id="courant_2" name="courant" value="2">
+            <label for="courant_2">Avancé</label>
+            <input type="radio" id="courant_3" name="courant" value="3">
+            <label for="courant_3">Prime</label>
+        </div>
+        <small>Indiquez le type de compte courant.</small>
 
         <button type="submit">Faire une Prédiction</button>
     </form>
+</main>
 
-   
+<footer>
+    &copy; 2024 Prédiction de Défaut. Tous droits réservés.
+</footer>
+
 </body>
 </html>

@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 8080
 
 # Commande pour lancer l'application Flask
-CMD ["python3", "main.py"]
+CMD ["waitress-serve", "--host=0.0.0.0", "--port=8080", "main:app"]

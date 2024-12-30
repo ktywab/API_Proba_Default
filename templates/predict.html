@@ -2,13 +2,77 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Formulaire de Prédiction de Défaut</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Résultats de la Prédiction</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+        }
+
+        main {
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            color: #4CAF50;
+            text-align: center;
+        }
+
+        p {
+            font-size: 16px;
+            line-height: 1.5;
+        }
+
+        .result {
+            font-weight: bold;
+            color: #000;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
+
+<header>
+    <h1>Résultats de la Prédiction</h1>
+</header>
+
+<main>
     {% if prediction_classe is not none and prob_defaut is not none %}
-    <h2>Résultats de la Prédiction :</h2>
-    <p>Classe prédite : {{ prediction_classe }}</p>
-    <p>Probabilité de faire défaut : {{ prob_defaut }}</p>
+    <h2>Résultats :</h2>
+    {% if prediction_classe == 0 %}
+    <p>Le client a plus de chances de ne pas faire défaut.</p>
+    {% else %}
+    <p>Le client a un risque élevé de faire défaut.</p>
     {% endif %}
+    <p>Probabilité de faire défaut : <span class="result">{{ prob_defaut }}</span></p>
+    {% endif %}
+</main>
+
+<footer>
+    &copy; 2024 Prédiction de Défaut. Tous droits réservés.
+</footer>
+
 </body>
 </html>
