@@ -1,0 +1,380 @@
+```{r}
+library(visdat)
+library(missForest)
+library(VIM)
+library(caret)
+library(ROSE) # Pour l'oversampling et l'undersampling
+library(dplyr)
+library(glmnet)
+library(pROC)
+```
+
+```{r}
+credit <- read.delim("C:/Users/toshiba/Desktop/M2_stat/Management_des_risques/Projet_proba_defaut/API_Proba_Default/credit.txt")
+
+head(credit)
+```
+
+### Convertion au type adapté aux données
+
+```{r}
+# Identifier les colonnes catégoriques
+categorical_columns <- colnames(credit)[sapply(credit, function(col) {
+  length(unique(col)) < 5 && (is.numeric(col) || is.integer(col))
+})]
+print(paste("Variables catégoriques potentielles :", paste(categorical_columns, collapse = ", ")))
+
+# Convertir les colonnes identifiées en type catégorie (factor en R)
+for (col in categorical_columns) {
+  credit[[col]] <- as.factor(credit[[col]])
+}
+
+head(credit)
+str(credit)
+```
+
+### Introduction de NA dans 10% des observations
+
+```{r}
+# Obtenir le nombre de lignes et de colonnes
+n_rows <- nrow(credit)
+n_cols <- ncol(credit)
+
+# Identifier les colonnes à modifier (toutes sauf 'age')
+cols_to_modify <- setdiff(colnames(credit), "age")
+
+# Introduire des NA dans 10% des observations
+set.seed(123) # Fixer une graine pour reproductibilité
+for (col in cols_to_modify) {
+  na_indices <- sample(1:n_rows, size = floor(0.1 * n_rows)) # Sélectionner 10% des indices
+  credit[na_indices, col] <- NA
+}
+
+head(credit)
+```
+
+```{r}
+#Package visdat
+vis_miss(credit)
+```
+
+### Imputation de NA avec MissForest
+
+```{r}
+# Exécuter l'imputation avec variablewise activé
+set.seed(123) # Assurer la reproductibilité
+imputed_data <- missForest(credit, maxiter = 10, variablewise = TRUE)
+
+# Récupérer les erreurs par variable
+variable_errors <- imputed_data$OOBerror
+
+# Vérifier l'ordre des erreurs par rapport aux colonnes
+names(variable_errors) <- colnames(credit)  # Associer les noms des colonnes aux erreurs
+
+# Identifier les colonnes continues et catégoriques
+continuous_columns <- colnames(credit)[sapply(credit, is.numeric)]
+categorical_columns <- colnames(credit)[sapply(credit, is.factor)]
+
+# Extraire les erreurs pour les colonnes continues et catégoriques
+continuous_errors <- variable_errors[continuous_columns]
+categorical_errors <- variable_errors[categorical_columns]
+
+# Calculer le RNMSE pour les colonnes continues
+# RNMSE = sqrt(MSE) / variance
+rnmse_values <- sapply(continuous_columns, function(col) {
+  mse <- continuous_errors[col]  # MSE pour la colonne
+  variance <- var(credit[[col]], na.rm = TRUE)  # Variance de la colonne
+  sqrt(mse) / sqrt(variance)  # Calcul du RNMSE
+})
+
+# Calculer la moyenne des RNMSE pour les colonnes continues
+mean_rnmse <- mean(rnmse_values, na.rm = TRUE)
+
+# Calculer la moyenne des erreurs pour les colonnes catégoriques
+mean_categorical_error <- mean(categorical_errors, na.rm = TRUE)
+
+# Afficher les résultats
+cat("Moyenne des erreurs RNMSE pour les colonnes continues :", mean_rnmse, "\n")
+cat("Moyenne des proportions de classifications incorrectes pour les colonnes catégoriques :", mean_categorical_error, "\n")
+
+```
+
+### Inputation avec les KNN sur données mixte
+
+```{r}
+# Effectuer l'imputation KNN
+set.seed(123)  # Fixer la graine pour la reproductibilité
+imputed_knn <- kNN(credit, k = 5)  # Imputation avec 5 voisins
+
+# Les données imputées sont stockées dans le data.frame
+credit_imputed <- imputed_knn[, colnames(credit)]  # Récupérer uniquement les colonnes originales
+
+# Identifier les colonnes continues et catégoriques
+continuous_columns <- colnames(credit)[sapply(credit, is.numeric)]
+categorical_columns <- colnames(credit)[sapply(credit, is.factor)]
+
+# Calculer le RNMSE pour les colonnes continues
+rnmse_values <- sapply(continuous_columns, function(col) {
+  original <- credit[[col]]
+  imputed <- credit_imputed[[col]]
+  mse <- mean((original - imputed)^2, na.rm = TRUE)
+  variance <- var(original, na.rm = TRUE)
+  sqrt(mse) / sqrt(variance)  # RNMSE
+})
+
+mean_rnmse <- mean(rnmse_values)
+
+# Calculer la proportion de classifications incorrectes pour les colonnes catégoriques
+pfc_values <- sapply(categorical_columns, function(col) {
+  original <- credit[[col]]
+  imputed <- credit_imputed[[col]]
+  mean(original[!is.na(original)] != imputed[!is.na(original)], na.rm = TRUE)
+})
+
+mean_pfc <- mean(pfc_values, na.rm = TRUE)
+
+# Afficher les résultats
+cat("Moyenne des RNMSE pour les colonnes continues :", mean_rnmse, "\n")
+cat("Moyenne des proportions de classifications incorrectes pour les colonnes catégoriques :", mean_pfc, "\n")
+
+```
+
+### Régression logistique
+
+```{r}
+credit <- read.delim("C:/Users/toshiba/Desktop/M2_stat/Management_des_risques/Projet_proba_defaut/API_Proba_Default/credit.txt")
+```
+
+```{r}
+# Diviser les données en jeux d'entraînement et de test (80% train, 20% test)
+set.seed(123)
+trainIndex <- createDataPartition(credit$nodef, p = 0.8, list = FALSE)
+train_data <- credit[trainIndex, ]
+test_data <- credit[-trainIndex, ]
+
+# Standardisation des variables explicatives
+# On exclut la variable cible `nodef` pour ne pas la modifier
+preprocessor <- preProcess(train_data[, -which(names(train_data) == "nodef")], method = c("center", "scale"))
+
+# Application de la transformation sur les données d'entraînement et de test
+train_data_scaled <- train_data
+train_data_scaled[, -which(names(train_data) == "nodef")] <- predict(preprocessor, train_data[, -which(names(train_data) == "nodef")])
+
+test_data_scaled <- test_data
+test_data_scaled[, -which(names(test_data) == "nodef")] <- predict(preprocessor, test_data[, -which(names(test_data) == "nodef")])
+
+# 1. Base d'origine (sans rééquilibrage)
+original_train_scaled <- train_data_scaled
+
+# 2. Undersampling (réduction de la classe majoritaire) sur les données standardisées
+under_train_scaled <- ovun.sample(nodef ~ ., data = original_train_scaled, method = "under")$data
+
+# 3. Oversampling (augmentation de la classe minoritaire) sur les données standardisées
+over_train_scaled <- ovun.sample(nodef ~ ., data = original_train_scaled, method = "over")$data
+
+# Vérification des résultats
+summary(original_train_scaled)
+summary(under_train_scaled)
+summary(over_train_scaled)
+```
+
+```{r}
+test_data
+```
+
+```{r}
+# Entraînement des modèles
+logistic_model_original <- glm(nodef ~ ., data = original_train_scaled, family = binomial)
+logistic_model_under <- glm(nodef ~ ., data = under_train_scaled, family = binomial)
+logistic_model_over <- glm(nodef ~ ., data = over_train_scaled, family = binomial)
+
+# Prévisions sur le jeu de test
+pred_original <- ifelse(predict(logistic_model_original, newdata = test_data, type = "response") > 0.5, 1, 0)
+pred_under <- ifelse(predict(logistic_model_under, newdata = test_data, type = "response") > 0.5, 1, 0)
+pred_over <- ifelse(predict(logistic_model_over, newdata = test_data, type = "response") > 0.5, 1, 0)
+
+# Calcul des métriques
+# 1. Matrices de confusion
+conf_original <- confusionMatrix(as.factor(pred_original), as.factor(test_data$nodef))
+conf_under <- confusionMatrix(as.factor(pred_under), as.factor(test_data$nodef))
+conf_over <- confusionMatrix(as.factor(pred_over), as.factor(test_data$nodef))
+
+# 2. Extraction des métriques
+metrics_original <- conf_original$byClass
+metrics_under <- conf_under$byClass
+metrics_over <- conf_over$byClass
+
+# Affichage des métriques importantes
+cat("### Performance du modèle sur les données originales ###\n")
+print(metrics_original)
+cat("\n### Performance du modèle sur les données undersampled ###\n")
+print(metrics_under)
+cat("\n### Performance du modèle sur les données oversampled ###\n")
+print(metrics_over)
+
+# 3. Affichage des courbes ROC et calcul de l'AUC
+roc_original <- roc(test_data$nodef, predict(logistic_model_original, newdata = test_data, type = "response"))
+roc_under <- roc(test_data$nodef, predict(logistic_model_under, newdata = test_data, type = "response"))
+roc_over <- roc(test_data$nodef, predict(logistic_model_over, newdata = test_data, type = "response"))
+
+# Affichage des courbes ROC
+plot(roc_original, col = "blue", main = "Courbes ROC", lwd = 2)
+lines(roc_under, col = "red", lwd = 2)
+lines(roc_over, col = "green", lwd = 2)
+legend("bottomright", legend = c("Original", "Undersampling", "Oversampling"),
+       col = c("blue", "red", "green"), lty = 1, lwd = 2)
+
+# 4. Calcul et affichage des AUC
+auc_original <- auc(roc_original)
+auc_under <- auc(roc_under)
+auc_over <- auc(roc_over)
+
+#cat("\nAUC Original:", auc_original)
+cat("\nAUC Undersampling:", auc_under)
+cat("\nAUC Oversampling:", auc_over)
+```
+
+### Régression régularisé
+
+```{r}
+# 1. Préparer les données d'entraînement
+# Conversion en matrices
+x_original <- as.matrix(original_train_scaled[, -which(names(original_train_scaled) == "nodef")])
+y_original <- original_train_scaled$nodef
+
+# Convertir la variable cible en facteur avec des niveaux valides
+y_original <- factor(y_original, levels = c(0, 1), labels = c("No", "Yes"))
+
+# 2. Définir les paramètres de la validation croisée répétée
+control <- trainControl(method = "repeatedcv",     # Validation croisée répétée
+                        number = 10,               # 10 folds
+                        repeats = 3,               # Répéter la validation croisée 3 fois
+                        verboseIter = TRUE,        # Afficher les étapes en cours
+                        summaryFunction = twoClassSummary,  # Résumé basé sur ROC/AUC
+                        classProbs = TRUE)         # Calculer les probabilités de classes
+
+# 3. Entraîner le modèle avec validation croisée répétée
+set.seed(123)  # Pour reproductibilité
+lasso_model <- train(x = x_original,
+                     y = y_original,
+                     method = "glmnet",            # Modèle glmnet
+                     family = "binomial",
+                     trControl = control,          # Contrôle de la validation croisée
+                     tuneLength = 10,              # Nombre de valeurs de lambda à tester
+                     metric = "ROC",               # Optimiser l'AUC
+                     preProcess = c("center", "scale"), # Standardiser les données
+                     tuneGrid = expand.grid(alpha = 1,  # Régularisation Lasso
+                                            lambda = seq(0.001, 0.1, by = 0.01)))  # Grille de lambda
+
+
+
+```
+
+```{r}
+# Résumé des résultats
+print(lasso_model)
+
+# Meilleur lambda sélectionné
+best_lambda <- lasso_model$bestTune$lambda
+cat("Meilleur lambda sélectionné :", best_lambda, "\n")
+
+```
+
+```{r}
+# 4. Préparer les données de test
+# Conversion en matrice
+x_test <- as.matrix(test_data[, -which(names(test_data_scaled) == "nodef")])
+
+# Assurer que les niveaux de la variable cible sont cohérents entre entraînement et test
+test_data$nodef <- factor(test_data$nodef, levels = levels(y_original))
+
+# 5. Faire des prédictions
+# Prédictions des probabilités
+pred_test <- predict(lasso_model, newdata = x_test, type = "prob")[, "Yes"]
+
+# Convertir les probabilités en classes avec un seuil (modifiable)
+seuil <- 0.5
+pred_class <- ifelse(pred_test > seuil, "Yes", "No")
+
+# 6. Calcul des métriques de performance
+# Vérifier les niveaux dans les prédictions et les données de référence
+pred_class <- factor(pred_class, levels = c("No", "Yes"))
+test_data$nodef <- factor(test_data$nodef, levels = c("No", "Yes"))
+
+# Calcul de la matrice de confusion
+conf_test <- confusionMatrix(pred_class, test_data$nodef)
+print(conf_test)
+
+# 7. Calcul de l'AUC et tracé de la courbe ROC
+library(pROC)
+
+# Calcul de la courbe ROC
+roc_test <- roc(test_data$nodef, pred_test, levels = c("No", "Yes"), direction = "<")
+auc_value <- auc(roc_test)
+cat("AUC sur le jeu de test :", auc_value, "\n")
+
+# Affichage de la courbe ROC
+plot(roc_test, col = "blue", main = "Courbe ROC - Modèle Lasso avec CV", lwd = 2)
+```
+
+```{r}
+test_data
+```
+
+```{r}
+# Préparation des données (conversion des données si nécessaire)
+X <- model.matrix(nodef ~ ., data = train_data)[, -1]  # Matrice des variables explicatives
+y <- train_data$nodef  # Variable cible
+
+# Paramètres de la validation croisée répétée
+set.seed(123)
+cv_control <- trainControl(
+  method = "repeatedcv",   # Validation croisée répétée
+  number = 10,             # 10-fold CV
+  repeats = 5,             # 5 répétitions
+  verboseIter = TRUE       # Affichage des itérations
+)
+
+# Entraînement d'un modèle glmnet avec validation croisée
+# alpha = 1 pour Lasso, alpha = 0 pour Ridge, alpha entre 0 et 1 pour Elastic Net
+set.seed(123)
+cv_model <- train(
+  x = X,
+  y = as.factor(y),
+  method = "glmnet",
+  trControl = cv_control,
+  tuneLength = 10,  # Recherche automatique de 10 valeurs optimales de lambda
+  metric = "Accuracy"  # Critère d'optimisation
+)
+
+# Résultats de la validation croisée
+print(cv_model)
+cat("Meilleur lambda :", cv_model$bestTune$lambda, "\n")
+cat("Meilleur alpha :", cv_model$bestTune$alpha, "\n")
+
+# Affichage du graphique des performances en fonction de lambda et alpha
+plot(cv_model)
+
+# Ajustement du modèle final avec le lambda optimal
+final_model <- glmnet(X, y, alpha = cv_model$bestTune$alpha, lambda = cv_model$bestTune$lambda, family = "binomial")
+
+# Prévision sur le jeu de test
+X_test <- model.matrix(nodef ~ ., data = test_data)[, -1]
+pred_final <- predict(final_model, newx = X_test, type = "response")
+
+# Conversion des probabilités en classes (seuil 0.5)
+pred_class <- ifelse(pred_final > 0.5, 1, 0)
+
+# Évaluation des performances du modèle final
+confusion_final <- confusionMatrix(as.factor(pred_class), as.factor(test_data$nodef))
+
+# Affichage des métriques finales
+cat("\n### Résultats du modèle régularisé ###\n")
+print(confusion_final)
+
+# Courbe ROC et AUC
+library(pROC)
+roc_final <- roc(test_data$nodef, pred_final)
+plot(roc_final, col = "blue", main = "Courbe ROC - Modèle Régularisé", lwd = 2)
+cat("AUC du modèle régularisé :", auc(roc_final), "\n")
+```

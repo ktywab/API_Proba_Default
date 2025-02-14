@@ -1,0 +1,549 @@
+```{r}
+library(visdat)
+library(missForest)
+library(VIM)
+library(caret)
+library(ROSE) # Pour l'oversampling et l'undersampling
+library(dplyr)
+library(glmnet)
+library(pROC)
+```
+
+```{r}
+credit <- read.delim("C:/Users/toshiba/Desktop/M2_stat/Management_des_risques/Projet_proba_defaut/API_Proba_Default/credit.txt")
+
+head(credit)
+```
+
+### Convertion au type adapté aux données
+
+```{r}
+# Identifier les colonnes catégoriques
+categorical_columns <- colnames(credit)[sapply(credit, function(col) {
+  length(unique(col)) < 5 && (is.numeric(col) || is.integer(col))
+})]
+print(paste("Variables catégoriques potentielles :", paste(categorical_columns, collapse = ", ")))
+
+# Convertir les colonnes identifiées en type catégorie (factor en R)
+for (col in categorical_columns) {
+  credit[[col]] <- as.factor(credit[[col]])
+}
+
+head(credit)
+str(credit)
+```
+
+### Séparation en base de test et d'entrainement
+
+```{r}
+# Diviser les données en jeux d'entraînement et de test (80% train, 20% test)
+set.seed(123)
+trainIndex <- createDataPartition(credit$nodef, p = 0.8, list = FALSE)
+train_data <- credit[trainIndex, ]
+test_data <- credit[-trainIndex, ]
+
+# Standardisation des variables explicatives
+# On exclut la variable cible `nodef` pour ne pas la modifier
+preprocessor <- preProcess(train_data[, -which(names(train_data) == "nodef")], method = c("center", "scale"))
+
+# Application de la transformation sur les données d'entraînement et de test
+train_data_scaled <- train_data
+train_data_scaled[, -which(names(train_data) == "nodef")] <- predict(preprocessor, train_data[, -which(names(train_data) == "nodef")])
+
+test_data_scaled <- test_data
+test_data_scaled[, -which(names(test_data) == "nodef")] <- predict(preprocessor, test_data[, -which(names(test_data) == "nodef")])
+
+# 1. Base d'origine (sans rééquilibrage)
+original_train_scaled <- train_data_scaled
+
+# 2. Undersampling (réduction de la classe majoritaire) sur les données standardisées
+under_train_scaled <- ovun.sample(nodef ~ ., data = original_train_scaled, method = "under")$data
+
+# 3. Oversampling (augmentation de la classe minoritaire) sur les données standardisées
+over_train_scaled <- ovun.sample(nodef ~ ., data = original_train_scaled, method = "over")$data
+
+# Vérification des résultats
+summary(original_train_scaled)
+summary(under_train_scaled)
+summary(over_train_scaled)
+```
+
+### Régression logistique régualrisé
+
+#### Mise en forme au bon format du dataset et entrainement des modèles
+
+```{r}
+# Fonction pour entraîner le modèle avec différents types de régularisation
+train_regularized_model <- function(train_data, alpha_value = 1) {
+  # Préparer les données
+  x_train <- as.matrix(train_data[, -which(names(train_data) == "nodef")])
+  y_train <- factor(train_data$nodef, levels = c(0, 1), labels = c("No", "Yes"))
+
+  # Définir les paramètres de la validation croisée
+  control <- trainControl(method = "repeatedcv", number = 5, repeats = 3, 
+                          summaryFunction = twoClassSummary, classProbs = TRUE)
+
+  # Entraîner le modèle régularisé avec validation croisée
+  set.seed(123)
+  regularized_model <- train(x = x_train, y = y_train,
+                             method = "glmnet", family = "binomial",
+                             trControl = control, tuneLength = 10,
+                             metric = "ROC",
+                             tuneGrid = expand.grid(alpha = alpha_value, lambda = seq(0, 1, by = 0.001)))
+  
+  return(regularized_model)
+}
+
+
+
+
+# Entraîner les modèles avec différentes régularisations
+# Modèle Lasso (alpha = 1)
+lasso_original <- train_regularized_model(original_train_scaled, alpha_value = 1)
+lasso_under <- train_regularized_model(under_train_scaled, alpha_value = 1)
+lasso_over <- train_regularized_model(over_train_scaled, alpha_value = 1)
+
+# Modèle Ridge (alpha = 0)
+ridge_original <- train_regularized_model(original_train_scaled, alpha_value = 0)
+ridge_under <- train_regularized_model(under_train_scaled, alpha_value = 0)
+ridge_over <- train_regularized_model(over_train_scaled, alpha_value = 0)
+
+# Modèle Elastic Net (alpha = 0.5)
+elastic_original <- train_regularized_model(original_train_scaled, alpha_value = 0.5)
+elastic_under <- train_regularized_model(under_train_scaled, alpha_value = 0.5)
+elastic_over <- train_regularized_model(over_train_scaled, alpha_value = 0.5)
+```
+
+#### Graphe de l'AUC en fonction de lambda
+
+```{r}
+# Fonction pour tracer la courbe AUC vs Lambda
+plot_auc_vs_lambda <- function(model, model_name) {
+  # Extraire les résultats de validation croisée
+  results <- model$results
+  
+  # Identifier le lambda optimal
+  best_lambda <- model$bestTune$lambda
+  best_auc <- max(results$ROC)
+  
+  # Tracer la courbe avec ggplot2
+  ggplot(results, aes(x = lambda, y = ROC)) +
+    geom_line(color = "blue", size = 1.2) +
+    geom_point(color = "darkblue", size = 2) +
+    geom_vline(xintercept = best_lambda, color = "red", linetype = "dashed", size = 1.2) +
+    annotate("text", x = best_lambda, y = best_auc, label = paste0("Lambda optimal: ", round(best_lambda, 4)),
+             color = "red", hjust = -0.1, vjust = -0.5) +
+    labs(title = paste("Évolution de l'AUC en fonction de Lambda -", model_name),
+         x = "Lambda", y = "AUC (ROC)") +
+    theme_minimal()
+}
+
+# Tracer les courbes pour les trois modèles
+plot_auc_vs_lambda(lasso_original, "Original") 
+plot_auc_vs_lambda(lasso_under, "Under-Sampled")
+plot_auc_vs_lambda(lasso_over, "Over-Sampled")
+
+
+# Tracer les courbes pour les trois modèles
+plot_auc_vs_lambda(ridge_original, "Original") 
+plot_auc_vs_lambda(ridge_under, "Under-Sampled")
+plot_auc_vs_lambda(ridge_over, "Over-Sampled")
+
+
+# Tracer les courbes pour les trois modèles
+plot_auc_vs_lambda(elastic_original, "Original") 
+plot_auc_vs_lambda(elastic_under, "Under-Sampled")
+plot_auc_vs_lambda(elastic_over, "Over-Sampled")
+```
+
+#### Calcul des metrics pour chaque methode
+
+```{r}
+calculate_metrics_and_roc <- function(y_true, y_pred_prob) {
+  # Convertir les probabilités en classes selon un seuil de 0.5
+  y_pred <- ifelse(y_pred_prob > 0.5, "Yes", "No")
+  y_pred <- factor(y_pred, levels = c("No", "Yes"))
+
+  # Calcul de la matrice de confusion
+  confusion <- confusionMatrix(y_pred, y_true, positive = "Yes")
+
+  # Calcul des métriques
+  accuracy <- confusion$overall["Accuracy"]
+  precision <- confusion$byClass["Precision"]
+  recall <- confusion$byClass["Sensitivity"]
+  f1_score <- (2 * precision * recall) / (precision + recall)
+
+  # Calcul de la courbe ROC et de l'AUC
+  roc_curve <- roc(response = y_true, predictor = y_pred_prob)
+  auc_value <- auc(roc_curve)
+
+  # Retourner les résultats
+  list(
+    ROC = roc_curve,
+    Metrics = list(
+      Accuracy = round(accuracy, 3),
+      Precision = round(precision, 3),
+      Recall = round(recall, 3),
+      F1_Score = round(f1_score, 3),
+      AUC = round(auc_value, 3)
+    )
+  )
+}
+
+
+# --- Préparer les données de test ---
+x_test <- as.matrix(test_data_scaled[, -which(names(test_data_scaled) == "nodef")])
+y_test <- factor(test_data_scaled$nodef, levels = c(0, 1), labels = c("No", "Yes"))
+
+# --- Faire les prédictions avec les modèles entraînés ---
+# Lasso
+predictions_lasso_original <- predict(lasso_original, newdata = x_test, type = "prob")
+predictions_lasso_under <- predict(lasso_under, newdata = x_test, type = "prob")
+predictions_lasso_over <- predict(lasso_over, newdata = x_test, type = "prob")
+
+# Ridge
+predictions_ridge_original <- predict(ridge_original, newdata = x_test, type = "prob")
+predictions_ridge_under <- predict(ridge_under, newdata = x_test, type = "prob")
+predictions_ridge_over <- predict(ridge_over, newdata = x_test, type = "prob")
+
+# Elastic Net
+predictions_elastic_original <- predict(elastic_original, newdata = x_test, type = "prob")
+predictions_elastic_under <- predict(elastic_under, newdata = x_test, type = "prob")
+predictions_elastic_over <- predict(elastic_over, newdata = x_test, type = "prob")
+
+# --- Calculer les métriques et courbes ROC ---
+# Lasso
+results_lasso_original <- calculate_metrics_and_roc(y_test, predictions_lasso_original[, "Yes"])
+results_lasso_under <- calculate_metrics_and_roc(y_test, predictions_lasso_under[, "Yes"])
+results_lasso_over <- calculate_metrics_and_roc(y_test, predictions_lasso_over[, "Yes"])
+
+# Ridge
+results_ridge_original <- calculate_metrics_and_roc(y_test, predictions_ridge_original[, "Yes"])
+results_ridge_under <- calculate_metrics_and_roc(y_test, predictions_ridge_under[, "Yes"])
+results_ridge_over <- calculate_metrics_and_roc(y_test, predictions_ridge_over[, "Yes"])
+
+# Elastic Net
+results_elastic_original <- calculate_metrics_and_roc(y_test, predictions_elastic_original[, "Yes"])
+results_elastic_under <- calculate_metrics_and_roc(y_test, predictions_elastic_under[, "Yes"])
+results_elastic_over <- calculate_metrics_and_roc(y_test, predictions_elastic_over[, "Yes"])
+
+# Fonction pour afficher les métriques de manière lisible
+display_metrics <- function(model_name, metrics) {
+  formatted_metrics <- paste(
+    "Accuracy:", metrics$Accuracy,
+    "| Precision:", metrics$Precision,
+    "| Recall:", metrics$Recall,
+    "| F1-Score:", metrics$F1_Score,
+    "| AUC:", metrics$AUC
+  )
+  cat(model_name, ":", formatted_metrics, "\n")
+}
+
+# --- Affichage des résultats pour tous les modèles ---
+# Lasso
+display_metrics("Métriques pour le modèle Lasso - Original", results_lasso_original$Metrics)
+display_metrics("Métriques pour le modèle Lasso - Under-Sampled", results_lasso_under$Metrics)
+display_metrics("Métriques pour le modèle Lasso - Over-Sampled", results_lasso_over$Metrics)
+
+# Ridge
+display_metrics("Métriques pour le modèle Ridge - Original", results_ridge_original$Metrics)
+display_metrics("Métriques pour le modèle Ridge - Under-Sampled", results_ridge_under$Metrics)
+display_metrics("Métriques pour le modèle Ridge - Over-Sampled", results_ridge_over$Metrics)
+
+# Elastic Net
+display_metrics("Métriques pour le modèle Elastic Net - Original", results_elastic_original$Metrics)
+display_metrics("Métriques pour le modèle Elastic Net - Under-Sampled", results_elastic_under$Metrics)
+display_metrics("Métriques pour le modèle Elastic Net - Over-Sampled", results_elastic_over$Metrics)
+
+
+
+```
+
+\
+
+#### Courbe roc pour chaque méthode
+
+```{r}
+# Fonction pour préparer les données ROC avec l'AUC
+prepare_roc_data <- function(results, model_name, data_type) {
+  data.frame(
+    FalsePositiveRate = 1 - results$ROC$specificities,
+    TruePositiveRate = results$ROC$sensitivities,
+    Data = data_type,
+    Model = model_name,
+    AUC = results$Metrics$AUC
+  )
+}
+
+# --- Préparer les données pour chaque modèle ---
+roc_data_lasso <- rbind(
+  prepare_roc_data(results_lasso_original, "Lasso", "Original"),
+  prepare_roc_data(results_lasso_under, "Lasso", "Under-Sampled"),
+  prepare_roc_data(results_lasso_over, "Lasso", "Over-Sampled")
+)
+
+roc_data_ridge <- rbind(
+  prepare_roc_data(results_ridge_original, "Ridge", "Original"),
+  prepare_roc_data(results_ridge_under, "Ridge", "Under-Sampled"),
+  prepare_roc_data(results_ridge_over, "Ridge", "Over-Sampled")
+)
+
+roc_data_elastic <- rbind(
+  prepare_roc_data(results_elastic_original, "Elastic Net", "Original"),
+  prepare_roc_data(results_elastic_under, "Elastic Net", "Under-Sampled"),
+  prepare_roc_data(results_elastic_over, "Elastic Net", "Over-Sampled")
+)
+
+# --- Fonction pour tracer le graphique avec l'AUC ---
+plot_roc_with_auc <- function(roc_data, model_name) {
+  # Couleurs spécifiques aux types de données
+  color_map <- c("Original" = "blue", "Under-Sampled" = "green", "Over-Sampled" = "red")
+
+  # Préparer les données d'annotation avec espacement dynamique
+  annotation_data <- roc_data %>%
+    group_by(Data) %>%
+    summarise(
+      MaxY = max(TruePositiveRate),  # Position basée sur le max de la courbe
+      AUC = unique(AUC)
+    )
+
+  # Fonction d'espacement dynamique
+  position_offset_map <- c("Original" = 0.05, "Under-Sampled" = 0.1, "Over-Sampled" = 0.15)
+  annotation_data <- annotation_data %>%
+    mutate(PositionY = MaxY - position_offset_map[Data], Color = color_map[Data])
+
+  # Tracer les courbes ROC
+  ggplot(roc_data, aes(x = FalsePositiveRate, y = TruePositiveRate, color = Data)) +
+    geom_line(size = 1.2) +
+    geom_abline(linetype = "dashed", color = "gray") +
+    scale_color_manual(values = color_map) +
+    labs(title = paste("Courbe ROC - Modèle", model_name),
+         x = "Taux de Faux Positifs", y = "Taux de Vrais Positifs") +
+    theme_minimal() +
+    theme(legend.title = element_blank()) +
+    # Ajouter l'AUC pour chaque type de données avec espacement dynamique
+    geom_text(data = annotation_data,
+              aes(x = 0.5, y = PositionY,
+                  label = paste("AUC:", round(AUC, 3))),
+              inherit.aes = FALSE, color = annotation_data$Color, size = 4, hjust = 0)
+}
+
+# --- Tracer les graphiques séparés ---
+plot_roc_with_auc(roc_data_lasso, "Lasso")
+plot_roc_with_auc(roc_data_ridge, "Ridge")
+plot_roc_with_auc(roc_data_elastic, "Elastic Net")
+
+
+```
+
+## Foret aléatoire 
+
+```{r}
+library(randomForest)
+
+# Fonction pour entraîner le modèle avec le suivi de l'accuracy en fonction du nombre d'arbres
+train_rf_model_and_track_accuracy <- function(train_data, num_trees_list) {
+  # Préparer les données
+  x_train <- as.matrix(train_data[, -which(names(train_data) == "nodef")])
+  y_train <- factor(train_data$nodef, levels = c(0, 1), labels = c("No", "Yes"))
+
+  # Définir les paramètres de validation croisée
+  control <- trainControl(method = "cv", number = 5,
+                          summaryFunction = twoClassSummary, classProbs = TRUE)
+
+  # Liste pour stocker les modèles et les résultats d'accuracy
+  models_list <- list()
+  accuracy_results <- data.frame(ntree = integer(), Accuracy = numeric())
+
+  for (ntree in num_trees_list) {
+    set.seed(123)
+    # Entraîner le modèle avec le nombre d'arbres spécifié
+    rf_model <- train(x = x_train, y = y_train,
+                      method = "rf",
+                      trControl = control,
+                      tuneGrid = expand.grid(mtry = floor(sqrt(ncol(x_train)))),
+                      metric = "Accuracy",
+                      ntree = ntree)
+
+    # Calculer l'accuracy sur l'ensemble d'entraînement
+    y_pred <- predict(rf_model, x_train)
+    accuracy <- mean(y_pred == y_train)
+
+    # Stocker les résultats
+    accuracy_results <- rbind(accuracy_results, data.frame(ntree = ntree, Accuracy = accuracy))
+    models_list[[as.character(ntree)]] <- rf_model
+  }
+
+  return(list(models = models_list, accuracy_data = accuracy_results))
+}
+
+# Tracer le graphique avec indication du nombre d'arbres optimal
+plot_accuracy_graph <- function(accuracy_data, title) {
+  # Trouver le nombre d'arbres optimal et l'accuracy correspondante
+  optimal_row <- accuracy_data[which.max(accuracy_data$Accuracy), ]
+  optimal_ntree <- optimal_row$ntree
+
+  ggplot(accuracy_data, aes(x = ntree, y = Accuracy)) +
+    geom_line(color = "blue", size = 1) +
+    geom_point(color = "red", size = 2) +
+    geom_vline(xintercept = optimal_ntree, linetype = "dashed", color = "green", size = 0.8) +
+    # Ajouter l'annotation en bas à droite
+    geom_text(aes(x = max(accuracy_data$ntree), y = min(accuracy_data$Accuracy),
+                  label = paste0(optimal_ntree, " tree")),
+              vjust = 2, hjust = 1, color = "green", size = 3.5, fontface = "bold") +
+    labs(title = title, x = "Number of Trees", y = "Accuracy") +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10)
+    )
+}
+
+# Définir les différents nombres d'arbres à tester
+num_trees_list <- seq(5, 50, by = 2)
+
+# Entraîner les modèles et suivre les accuracies pour chaque base de données
+results_original <- train_rf_model_and_track_accuracy(original_train_scaled, num_trees_list)
+results_under <- train_rf_model_and_track_accuracy(under_train_scaled, num_trees_list)
+results_over <- train_rf_model_and_track_accuracy(over_train_scaled, num_trees_list)
+
+# Tracer les graphiques
+plot_accuracy_graph(results_original$accuracy_data, "Accuracy vs Number of Trees (Original Data)")
+plot_accuracy_graph(results_under$accuracy_data, "Accuracy vs Number of Trees (Under-sampled Data)")
+plot_accuracy_graph(results_over$accuracy_data, "Accuracy vs Number of Trees (Over-sampled Data)")
+
+# Les modèles finaux pour chaque base avec le nombre d'arbres optimal
+final_model_original <- results_original$models[[as.character(results_original$accuracy_data$ntree[which.max(results_original$accuracy_data$Accuracy)])]]
+final_model_under <- results_under$models[[as.character(results_under$accuracy_data$ntree[which.max(results_under$accuracy_data$Accuracy)])]]
+final_model_over <- results_over$models[[as.character(results_over$accuracy_data$ntree[which.max(results_over$accuracy_data$Accuracy)])]]
+
+```
+
+```{r}
+# Fonction pour évaluer le modèle sur les données de test
+evaluate_model_on_test <- function(model, test_data) {
+  # Préparer les données de test
+  x_test <- as.matrix(test_data[, -which(names(test_data) == "nodef")])
+  y_test <- factor(test_data$nodef, levels = c(0, 1), labels = c("No", "Yes"))
+
+  # Obtenir les prédictions de probabilité
+  y_pred_prob <- predict(model, x_test, type = "prob")[, "Yes"]
+
+  # Convertir les probabilités en classes (seuil de 0.5)
+  y_pred <- ifelse(y_pred_prob > 0.5, "Yes", "No")
+  y_pred <- factor(y_pred, levels = c("No", "Yes"))
+
+  # Calculer la matrice de confusion
+  confusion <- confusionMatrix(y_pred, y_test, positive = "Yes")
+
+  # Calculer les métriques
+  accuracy <- confusion$overall["Accuracy"]
+  precision <- confusion$byClass["Precision"]
+  recall <- confusion$byClass["Sensitivity"]
+  f1_score <- (2 * precision * recall) / (precision + recall)
+
+  # Calculer la courbe ROC et l’AUC
+  roc_curve <- roc(response = y_test, predictor = y_pred_prob)
+  auc_value <- auc(roc_curve)
+
+  # Retourner les métriques
+  list(
+    Accuracy = round(accuracy, 3),
+    Precision = round(precision, 3),
+    Recall = round(recall, 3),
+    F1_Score = round(f1_score, 3),
+    AUC = round(auc_value, 3)
+  )
+}
+
+# Évaluer les modèles finaux sur la base de test
+metrics_original <- evaluate_model_on_test(final_model_original, test_data_scaled)
+metrics_under <- evaluate_model_on_test(final_model_under, test_data_scaled)
+metrics_over <- evaluate_model_on_test(final_model_over, test_data_scaled)
+
+# Afficher les résultats
+print("Metrics for Original Model:")
+print(metrics_original)
+
+print("Metrics for Under-sampled Model:")
+print(metrics_under)
+
+print("Metrics for Over-sampled Model:")
+print(metrics_over)
+
+```
+
+```{r}
+# Fonction pour préparer les données ROC avec l'AUC
+prepare_roc_data <- function(model, test_data, model_name, data_type) {
+  # Préparer les données de test
+  x_test <- as.matrix(test_data[, -which(names(test_data) == "nodef")])
+  y_test <- factor(test_data$nodef, levels = c(0, 1), labels = c("No", "Yes"))
+
+  # Obtenir les probabilités prédites
+  y_pred_prob <- predict(model, x_test, type = "prob")[, "Yes"]
+
+  # Calculer la courbe ROC et l'AUC
+  roc_curve <- roc(y_test, y_pred_prob)
+
+  # S'assurer que les vecteurs ont la même longueur et filtrer les valeurs complètes
+  roc_data <- data.frame(
+    FalsePositiveRate = 1 - roc_curve$specificities,
+    TruePositiveRate = roc_curve$sensitivities
+  )
+  roc_data <- roc_data[complete.cases(roc_data), ]
+
+  # Ajouter les métadonnées
+  roc_data$Data <- data_type
+  roc_data$Model <- model_name
+  roc_data$AUC <- auc(roc_curve)
+
+  return(roc_data)
+}
+
+# Préparer les données pour les trois modèles finaux
+roc_data_rf <- rbind(
+  prepare_roc_data(final_model_original, test_data_scaled, "Random Forest", "Original"),
+  prepare_roc_data(final_model_under, test_data_scaled, "Random Forest", "Under-Sampled"),
+  prepare_roc_data(final_model_over, test_data_scaled, "Random Forest", "Over-Sampled")
+)
+
+# Fonction pour tracer les courbes ROC avec l'AUC
+plot_roc_with_auc <- function(roc_data, model_name) {
+  # Couleurs spécifiques aux types de données
+  color_map <- c("Original" = "blue", "Under-Sampled" = "green", "Over-Sampled" = "red")
+
+  # Préparer les données d'annotation avec espacement dynamique
+  annotation_data <- roc_data %>%
+    group_by(Data) %>%
+    summarise(
+      MaxY = max(TruePositiveRate),
+      AUC = unique(AUC)
+    )
+
+  # Fonction d'espacement dynamique
+  position_offset_map <- c("Original" = 0.05, "Under-Sampled" = 0.1, "Over-Sampled" = 0.15)
+  annotation_data <- annotation_data %>%
+    mutate(PositionY = MaxY - position_offset_map[Data], Color = color_map[Data])
+
+  # Tracer les courbes ROC
+  ggplot(roc_data, aes(x = FalsePositiveRate, y = TruePositiveRate, color = Data)) +
+    geom_line(size = 1.2) +
+    geom_abline(linetype = "dashed", color = "gray") +
+    scale_color_manual(values = color_map) +
+    labs(title = paste("Courbe ROC - Modèle", model_name),
+         x = "Taux de Faux Positifs", y = "Taux de Vrais Positifs") +
+    theme_minimal() +
+    theme(legend.title = element_blank()) +
+    # Ajouter l'AUC pour chaque type de données avec espacement dynamique
+    geom_text(data = annotation_data,
+              aes(x = 0.5, y = PositionY,
+                  label = paste("AUC:", round(AUC, 3))),
+              inherit.aes = FALSE, color = annotation_data$Color, size = 4, hjust = 0)
+}
+
+# Tracer le graphique pour les modèles Random Forest
+plot_roc_with_auc(roc_data_rf, "Random Forest")
+
+```
